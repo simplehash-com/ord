@@ -88,4 +88,10 @@ pub struct Options {
   pub(crate) signet: bool,
   #[arg(long, short, help = "Use testnet. Equivalent to `--chain testnet`.")]
   pub(crate) testnet: bool,
+  #[arg(long, help = "Publish events to kafka.")]
+  pub(crate) emit_events: bool,
+  #[arg(long, help = "Path to confluent cloud config file.")]
+  pub(crate) kafka_config: Option<String>,
+  #[arg(long, help = "Kafka publishing topic name.")]
+  pub(crate) kafka_topic: Option<String>,
 }

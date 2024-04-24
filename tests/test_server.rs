@@ -56,7 +56,11 @@ impl TestServer {
     {
       let index = index.clone();
       let ord_server_handle = ord_server_handle.clone();
-      thread::spawn(|| server.run(settings, index, ord_server_handle).unwrap());
+      thread::spawn(|| {
+        server
+          .run(settings, index, ord_server_handle, None)
+          .unwrap()
+      });
     }
 
     for i in 0.. {

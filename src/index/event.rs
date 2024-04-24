@@ -1,6 +1,8 @@
 use super::*;
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize)]
 pub enum Event {
   InscriptionCreated {
     block_height: u32,

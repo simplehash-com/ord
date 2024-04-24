@@ -22,6 +22,10 @@ use {
   },
   axum_server::Handle,
   brotli::Decompressor,
+  rdkafka::{
+    producer::{BaseProducer, BaseRecord},
+    ClientConfig,
+  },
   rust_embed::RustEmbed,
   rustls_acme::{
     acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY},
@@ -29,7 +33,13 @@ use {
     caches::DirCache,
     AcmeConfig,
   },
-  std::{cmp::Ordering, str, sync::Arc},
+  std::{
+    cmp::Ordering,
+    io::{BufRead, BufReader},
+    ops::Deref,
+    str,
+    sync::Arc,
+  },
   tokio_stream::StreamExt,
   tower_http::{
     compression::CompressionLayer,
@@ -140,7 +150,13 @@ pub struct Server {
 }
 
 impl Server {
-  pub fn run(self, settings: Settings, index: Arc<Index>, handle: Handle) -> SubcommandResult {
+  pub fn run(
+    self,
+    settings: Settings,
+    index: Arc<Index>,
+    handle: Handle,
+    event_receiver: Option<tokio::sync::mpsc::Receiver<Event>>,
+  ) -> SubcommandResult {
     Runtime::new()?.block_on(async {
       let index_clone = index.clone();
       let integration_test = settings.integration_test();
@@ -162,6 +178,102 @@ impl Server {
           self.polling_interval.into()
         });
       });
+
+      if let Some(mut receiver) = event_receiver {
+        let mut kafka_config = ClientConfig::new();
+        let config = settings.kafka_config().unwrap();
+        let file = std::fs::File::open(config)?;
+        for line in BufReader::new(&file).lines() {
+          let cur_line: String = line?.trim().to_string();
+          if cur_line.starts_with('#') || cur_line.len() < 1 {
+            continue;
+          }
+          let key_value: Vec<&str> = cur_line.split("=").collect();
+          kafka_config.set(
+            key_value.get(0).unwrap().deref(),
+            key_value.get(1).unwrap().deref(),
+          );
+        }
+
+        let producer: BaseProducer = kafka_config.create()?;
+        let topic = settings.kafka_topic().unwrap().to_string();
+
+        let receiver_handle = tokio::spawn(async move {
+          while !SHUTTING_DOWN.load(atomic::Ordering::Relaxed) {
+            if let Some(event) = receiver.recv().await {
+              match event {
+                Event::InscriptionCreated { .. } => {
+                  println!("Inscription created: {:?}", event);
+                  let j = serde_json::to_string(&event).unwrap();
+                  producer
+                    .send(
+                      BaseRecord::to(&topic)
+                        .payload(j.as_bytes())
+                        .key("inscription_created"),
+                    )
+                    .unwrap();
+                }
+                Event::InscriptionTransferred { .. } => {
+                  println!("Inscription moved: {:?}", event);
+                  let j = serde_json::to_string(&event).unwrap();
+                  producer
+                    .send(
+                      BaseRecord::to(&topic)
+                        .payload(j.as_bytes())
+                        .key("inscription_transferred"),
+                    )
+                    .unwrap();
+                }
+                Event::RuneTransferred { .. } => {
+                  println!("Rune transferred: {:?}", event);
+                  let j = serde_json::to_string(&event).unwrap();
+                  producer
+                    .send(
+                      BaseRecord::to(&topic)
+                        .payload(j.as_bytes())
+                        .key("rune_transferred"),
+                    )
+                    .unwrap();
+                }
+                Event::RuneMinted { .. } => {
+                  println!("Rune minted: {:?}", event);
+                  let j = serde_json::to_string(&event).unwrap();
+                  producer
+                    .send(
+                      BaseRecord::to(&topic)
+                        .payload(j.as_bytes())
+                        .key("rune_minted"),
+                    )
+                    .unwrap();
+                }
+                Event::RuneEtched { .. } => {
+                  println!("Rune etched: {:?}", event);
+                  let j = serde_json::to_string(&event).unwrap();
+                  producer
+                    .send(
+                      BaseRecord::to(&topic)
+                        .payload(j.as_bytes())
+                        .key("rune_etched"),
+                    )
+                    .unwrap();
+                }
+                Event::RuneBurned { .. } => {
+                  println!("Rune burned: {:?}", event);
+                  let j = serde_json::to_string(&event).unwrap();
+                  producer
+                    .send(
+                      BaseRecord::to(&topic)
+                        .payload(j.as_bytes())
+                        .key("rune_burned"),
+                    )
+                    .unwrap();
+                }
+              }
+            }
+          }
+        });
+        EVENT_FORWARDER.lock().unwrap().replace(receiver_handle);
+      }
 
       INDEXER.lock().unwrap().replace(index_thread);
 
@@ -2036,7 +2148,11 @@ mod tests {
       {
         let index = index.clone();
         let ord_server_handle = ord_server_handle.clone();
-        thread::spawn(|| server.run(settings, index, ord_server_handle).unwrap());
+        thread::spawn(|| {
+          server
+            .run(settings, index, ord_server_handle, None)
+            .unwrap()
+        });
       }
 
       while index.statistic(crate::index::Statistic::Commits) == 0 {

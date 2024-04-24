@@ -27,6 +27,9 @@ pub struct Settings {
   server_password: Option<String>,
   server_url: Option<String>,
   server_username: Option<String>,
+  emit_events: bool,
+  kafka_config: Option<String>,
+  kafka_topic: Option<String>,
 }
 
 impl Settings {
@@ -141,6 +144,9 @@ impl Settings {
       server_password: self.server_password.or(source.server_password),
       server_url: self.server_url.or(source.server_url),
       server_username: self.server_username.or(source.server_username),
+      emit_events: self.emit_events || source.emit_events,
+      kafka_config: self.kafka_config.or(source.kafka_config),
+      kafka_topic: self.kafka_topic.or(source.kafka_topic),
     }
   }
 
@@ -175,6 +181,9 @@ impl Settings {
       server_password: options.server_password,
       server_url: None,
       server_username: options.server_username,
+      emit_events: options.emit_events,
+      kafka_config: options.kafka_config,
+      kafka_topic: options.kafka_topic,
     }
   }
 
@@ -253,6 +262,9 @@ impl Settings {
       server_password: get_string("SERVER_PASSWORD"),
       server_url: get_string("SERVER_URL"),
       server_username: get_string("SERVER_USERNAME"),
+      emit_events: get_bool("EMIT_EVENTS"),
+      kafka_config: get_string("KAFKA_CONFIG"),
+      kafka_topic: get_string("KAFKA_TOPIC"),
     })
   }
 
@@ -282,6 +294,9 @@ impl Settings {
       server_password: None,
       server_url: Some(server_url.into()),
       server_username: None,
+      emit_events: true,
+      kafka_config: Some("config".into()),
+      kafka_topic: None,
     }
   }
 
@@ -361,6 +376,9 @@ impl Settings {
       server_password: self.server_password,
       server_url: self.server_url,
       server_username: self.server_username,
+      emit_events: self.emit_events,
+      kafka_config: self.kafka_config,
+      kafka_topic: self.kafka_topic,
     })
   }
 
@@ -552,6 +570,18 @@ impl Settings {
 
   pub(crate) fn server_url(&self) -> Option<&str> {
     self.server_url.as_deref()
+  }
+
+  pub(crate) fn emit_events(&self) -> bool {
+    self.emit_events
+  }
+
+  pub(crate) fn kafka_config(&self) -> Option<&str> {
+    self.kafka_config.as_deref()
+  }
+
+  pub(crate) fn kafka_topic(&self) -> Option<&str> {
+    self.kafka_topic.as_deref()
   }
 }
 
@@ -1044,6 +1074,9 @@ mod tests {
         server_password: Some("server password".into()),
         server_url: Some("server url".into()),
         server_username: Some("server username".into()),
+        emit_events: false,
+        kafka_config: None,
+        kafka_topic: None,
       }
     );
   }
@@ -1104,6 +1137,9 @@ mod tests {
         server_password: Some("server password".into()),
         server_url: None,
         server_username: Some("server username".into()),
+        emit_events: false,
+        kafka_config: None,
+        kafka_topic: None,
       }
     );
   }
