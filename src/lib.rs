@@ -84,7 +84,7 @@ use {
 pub use self::{
   chain::Chain,
   fee_rate::FeeRate,
-  index::{Index, RuneEntry},
+  index::{event::Event, Index, RuneEntry},
   inscriptions::{Envelope, Inscription, InscriptionId},
   object::Object,
   options::Options,
@@ -116,6 +116,7 @@ mod re;
 mod representation;
 pub mod runes;
 mod settings;
+pub mod stream;
 pub mod subcommand;
 mod tally;
 pub mod templates;
