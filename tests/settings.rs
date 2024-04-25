@@ -32,7 +32,8 @@ fn default() {
   "no_index_inscriptions": false,
   "server_password": null,
   "server_url": null,
-  "server_username": null
+  "server_username": null,
+  "emit_events": false
 \}
 "#,
     )
