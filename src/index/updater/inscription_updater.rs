@@ -65,6 +65,7 @@ pub(super) struct InscriptionUpdater<'a, 'tx> {
   pub(super) unbound_inscriptions: u64,
   pub(super) value_cache: &'a mut HashMap<OutPoint, u64>,
   pub(super) value_receiver: &'a mut Receiver<u64>,
+  pub(super) block_hash: BlockHash,
 }
 
 impl<'a, 'tx> InscriptionUpdater<'a, 'tx> {
@@ -413,6 +414,7 @@ impl<'a, 'tx> InscriptionUpdater<'a, 'tx> {
             new_location: new_satpoint,
             old_location: old_satpoint,
             sequence_number,
+            block_hash: self.block_hash,
           })?;
         }
 
@@ -506,6 +508,7 @@ impl<'a, 'tx> InscriptionUpdater<'a, 'tx> {
             location: (!unbound).then_some(new_satpoint),
             parent_inscription_ids: parents,
             sequence_number,
+            block_hash: self.block_hash,
           })?;
         }
 

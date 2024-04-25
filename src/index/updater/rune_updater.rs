@@ -15,6 +15,7 @@ pub(super) struct RuneUpdater<'a, 'tx, 'client> {
   pub(super) sequence_number_to_rune_id: &'a mut Table<'tx, u32, RuneIdValue>,
   pub(super) statistic_to_count: &'a mut Table<'tx, u64, u64>,
   pub(super) transaction_id_to_rune: &'a mut Table<'tx, &'static TxidValue, u128>,
+  pub(super) block_hash: BlockHash,
 }
 
 impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
@@ -36,6 +37,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
               txid,
               rune_id: id,
               amount: amount.n(),
+              block_hash: self.block_hash,
             })?;
           }
         }
@@ -205,6 +207,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
             txid,
             rune_id: id,
             amount: balance.0,
+            block_hash: self.block_hash,
           })?;
         }
       }
@@ -224,6 +227,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
           txid,
           rune_id: id,
           amount: amount.n(),
+          block_hash: self.block_hash,
         })?;
       }
     }
@@ -313,6 +317,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
         block_height: self.height,
         txid,
         rune_id: id,
+        block_hash: self.block_hash,
       })?;
     }
 

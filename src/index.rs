@@ -6333,6 +6333,7 @@ mod tests {
         block_height: 2,
         charms: expected_charms,
         parent_inscription_ids: Vec::new(),
+        block_hash: context.index.block_hash(Some(2)).unwrap().unwrap(),
       }
     );
 
@@ -6367,6 +6368,7 @@ mod tests {
           offset: 0
         },
         sequence_number: 0,
+        block_hash: context.index.block_hash(Some(3)).unwrap().unwrap(),
       }
     );
   }
@@ -6426,6 +6428,7 @@ mod tests {
         block_height: 8,
         txid: txid0,
         rune_id: id,
+        block_hash: context.index.block_hash(Some(8)).unwrap().unwrap(),
       }
     );
 
@@ -6480,6 +6483,7 @@ mod tests {
         txid: txid1,
         rune_id: id,
         amount: 1000,
+        block_hash: context.index.block_hash(Some(9)).unwrap().unwrap(),
       }
     );
 
@@ -6543,6 +6547,7 @@ mod tests {
           txid: txid2,
           vout: 0,
         },
+        block_hash: context.index.block_hash(Some(10)).unwrap().unwrap(),
       }
     );
 
@@ -6604,6 +6609,7 @@ mod tests {
         txid: txid3,
         amount: 111,
         rune_id: id,
+        block_hash: context.index.block_hash(Some(11)).unwrap().unwrap(),
       }
     );
   }

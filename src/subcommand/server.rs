@@ -36,7 +36,6 @@ use {
   std::{
     cmp::Ordering,
     io::{BufRead, BufReader},
-    ops::Deref,
     str,
     sync::Arc,
   },
@@ -189,10 +188,12 @@ impl Server {
             continue;
           }
           let key_value: Vec<&str> = cur_line.split("=").collect();
-          kafka_config.set(
-            key_value.get(0).unwrap().deref(),
-            key_value.get(1).unwrap().deref(),
-          );
+          if key_value.len() == 2 {
+            let key = key_value[0];
+            let value = key_value[1];
+
+            kafka_config.set(key, value);
+          }
         }
 
         let producer: BaseProducer = kafka_config.create()?;

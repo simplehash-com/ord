@@ -1,8 +1,7 @@
 use super::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Event {
   InscriptionCreated {
     block_height: u32,
@@ -11,6 +10,7 @@ pub enum Event {
     location: Option<SatPoint>,
     parent_inscription_ids: Vec<InscriptionId>,
     sequence_number: u32,
+    block_hash: BlockHash,
   },
   InscriptionTransferred {
     block_height: u32,
@@ -18,23 +18,27 @@ pub enum Event {
     new_location: SatPoint,
     old_location: SatPoint,
     sequence_number: u32,
+    block_hash: BlockHash,
   },
   RuneBurned {
     amount: u128,
     block_height: u32,
     rune_id: RuneId,
     txid: Txid,
+    block_hash: BlockHash,
   },
   RuneEtched {
     block_height: u32,
     rune_id: RuneId,
     txid: Txid,
+    block_hash: BlockHash,
   },
   RuneMinted {
     amount: u128,
     block_height: u32,
     rune_id: RuneId,
     txid: Txid,
+    block_hash: BlockHash,
   },
   RuneTransferred {
     amount: u128,
@@ -42,5 +46,6 @@ pub enum Event {
     outpoint: OutPoint,
     rune_id: RuneId,
     txid: Txid,
+    block_hash: BlockHash,
   },
 }
