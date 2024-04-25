@@ -67,6 +67,7 @@ impl Subcommand {
       Self::Runes => runes::run(settings),
       Self::Server(server) => {
         if settings.emit_events() {
+          log::info!("Starting server with kafka event emitter...");
           let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event>(128);
           let index = Arc::new(Index::open_with_event_sender(&settings, Some(sender))?);
           let handle = axum_server::Handle::new();
