@@ -48,44 +48,68 @@ impl StreamClient {
   pub fn emit(&self, event: &Event) -> Result {
     let key = match event {
       Event::InscriptionCreated {
+        block_hash,
         block_height,
         charms: _,
         inscription_id,
         location: _,
         parent_inscription_ids: _,
         sequence_number: _,
-      } => format!("InscriptionCreated_{}_{}", block_height, inscription_id),
+      } => format!(
+        "InscriptionCreated_{}_{}_{}",
+        block_height, block_hash, inscription_id
+      ),
       Event::InscriptionTransferred {
+        block_hash,
         block_height,
         inscription_id,
         new_location: _,
         old_location: _,
         sequence_number: _,
-      } => format!("InscriptionTransferred_{}_{}", block_height, inscription_id),
+      } => format!(
+        "InscriptionTransferred_{}_{}_{}",
+        block_height, block_hash, inscription_id
+      ),
       Event::RuneBurned {
+        block_hash,
         amount: _,
         block_height,
         rune_id,
         txid,
-      } => format!("RuneBurned_{}_{}_{}", block_height, rune_id, txid),
+      } => format!(
+        "RuneBurned_{}_{}_{}_{}",
+        block_height, block_hash, rune_id, txid
+      ),
       Event::RuneEtched {
+        block_hash,
         block_height,
         rune_id,
         txid,
-      } => format!("RuneEtched_{}_{}_{}", block_height, rune_id, txid),
+      } => format!(
+        "RuneEtched_{}_{}_{}_{}",
+        block_height, block_hash, rune_id, txid
+      ),
       Event::RuneMinted {
+        block_hash,
         amount: _,
         block_height,
         rune_id,
         txid,
-      } => format!("RuneMinted_{}_{}_{}", block_height, rune_id, txid),
+      } => format!(
+        "RuneMinted_{}_{}_{}_{}",
+        block_height, block_hash, rune_id, txid
+      ),
       Event::RuneTransferred {
+        block_hash,
         amount: _,
         block_height,
         outpoint: _,
         rune_id,
         txid,
-      } => format!("RuneTransferred_{}_{}_{}", block_height, rune_id, txid),
+      } => format!(
+        "RuneTransferred_{}_{}_{}_{}",
+        block_height, block_hash, rune_id, txid
+      ),
     };
 
     let payload = serde_json::to_vec(&event)?;

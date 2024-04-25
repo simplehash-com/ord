@@ -15,6 +15,7 @@ pub(super) struct RuneUpdater<'a, 'tx, 'client> {
   pub(super) sequence_number_to_rune_id: &'a mut Table<'tx, u32, RuneIdValue>,
   pub(super) statistic_to_count: &'a mut Table<'tx, u64, u64>,
   pub(super) transaction_id_to_rune: &'a mut Table<'tx, &'static TxidValue, u128>,
+  pub(super) block_hash: BlockHash,
 }
 
 impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
@@ -32,6 +33,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
           if let Some(sender) = self.event_sender {
             sender.blocking_send(Event::RuneMinted {
+              block_hash: self.block_hash,
               block_height: self.height,
               txid,
               rune_id: id,
@@ -200,6 +202,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
         if let Some(sender) = self.event_sender {
           sender.blocking_send(Event::RuneTransferred {
+            block_hash: self.block_hash,
             outpoint,
             block_height: self.height,
             txid,
@@ -220,6 +223,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
       if let Some(sender) = self.event_sender {
         sender.blocking_send(Event::RuneBurned {
+          block_hash: self.block_hash,
           block_height: self.height,
           txid,
           rune_id: id,
@@ -310,6 +314,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
     if let Some(sender) = self.event_sender {
       sender.blocking_send(Event::RuneEtched {
+        block_hash: self.block_hash,
         block_height: self.height,
         txid,
         rune_id: id,

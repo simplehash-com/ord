@@ -6516,6 +6516,7 @@ mod tests {
     assert_eq!(
       create_event,
       Event::InscriptionCreated {
+        block_hash: context.index.block_hash(Some(2)).unwrap().expect(""),
         inscription_id,
         location: Some(SatPoint {
           outpoint: OutPoint {
@@ -6545,6 +6546,7 @@ mod tests {
     assert_eq!(
       transfer_event,
       Event::InscriptionTransferred {
+        block_hash: context.index.block_hash(Some(3)).unwrap().expect(""),
         block_height: 3,
         inscription_id,
         new_location: SatPoint {
@@ -6618,6 +6620,7 @@ mod tests {
     assert_eq!(
       event_receiver.blocking_recv().unwrap(),
       Event::RuneEtched {
+        block_hash: context.index.block_hash(Some(8)).unwrap().expect(""),
         block_height: 8,
         txid: txid0,
         rune_id: id,
@@ -6671,6 +6674,7 @@ mod tests {
     assert_eq!(
       event_receiver.blocking_recv().unwrap(),
       Event::RuneMinted {
+        block_hash: context.index.block_hash(Some(9)).unwrap().expect(""),
         block_height: 9,
         txid: txid1,
         rune_id: id,
@@ -6730,6 +6734,7 @@ mod tests {
     pretty_assert_eq!(
       event_receiver.blocking_recv().unwrap(),
       Event::RuneTransferred {
+        block_hash: context.index.block_hash(Some(10)).unwrap().expect(""),
         block_height: 10,
         txid: txid2,
         rune_id: id,
@@ -6795,6 +6800,7 @@ mod tests {
     pretty_assert_eq!(
       event_receiver.blocking_recv().unwrap(),
       Event::RuneBurned {
+        block_hash: context.index.block_hash(Some(11)).unwrap().expect(""),
         block_height: 11,
         txid: txid3,
         amount: 111,

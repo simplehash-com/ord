@@ -66,6 +66,7 @@ pub(super) struct InscriptionUpdater<'a, 'tx> {
   pub(super) unbound_inscriptions: u64,
   pub(super) utxo_cache: &'a mut HashMap<OutPoint, TxOut>,
   pub(super) txout_receiver: &'a mut broadcast::Receiver<TxOut>,
+  pub(super) block_hash: BlockHash,
 }
 
 impl<'a, 'tx> InscriptionUpdater<'a, 'tx> {
@@ -433,6 +434,7 @@ impl<'a, 'tx> InscriptionUpdater<'a, 'tx> {
 
         if let Some(sender) = self.event_sender {
           sender.blocking_send(Event::InscriptionTransferred {
+            block_hash: self.block_hash,
             block_height: self.height,
             inscription_id,
             new_location: new_satpoint,
@@ -529,6 +531,7 @@ impl<'a, 'tx> InscriptionUpdater<'a, 'tx> {
 
         if let Some(sender) = self.event_sender {
           sender.blocking_send(Event::InscriptionCreated {
+            block_hash: self.block_hash,
             block_height: self.height,
             charms,
             inscription_id,
