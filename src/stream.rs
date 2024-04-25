@@ -114,6 +114,7 @@ impl StreamClient {
 
     let payload = serde_json::to_vec(&event)?;
     let record = BaseRecord::to(&self.topic).key(&key).payload(&payload);
+    self.producer.poll(Duration::from_secs(0));
     match self.producer.send(record) {
       Ok(_) => Ok(()),
       Err((e, _)) => Err(anyhow!("failed to send kafka message: {}", e)),
