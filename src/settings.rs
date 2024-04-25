@@ -27,6 +27,7 @@ pub struct Settings {
   server_password: Option<String>,
   server_url: Option<String>,
   server_username: Option<String>,
+  emit_events: bool,
 }
 
 impl Settings {
@@ -141,6 +142,7 @@ impl Settings {
       server_password: self.server_password.or(source.server_password),
       server_url: self.server_url.or(source.server_url),
       server_username: self.server_username.or(source.server_username),
+      emit_events: self.emit_events || source.emit_events,
     }
   }
 
@@ -175,6 +177,7 @@ impl Settings {
       server_password: options.server_password,
       server_url: None,
       server_username: options.server_username,
+      emit_events: options.emit_events,
     }
   }
 
@@ -253,6 +256,7 @@ impl Settings {
       server_password: get_string("SERVER_PASSWORD"),
       server_url: get_string("SERVER_URL"),
       server_username: get_string("SERVER_USERNAME"),
+      emit_events: get_bool("EMIT_EVENTS"),
     })
   }
 
@@ -282,6 +286,7 @@ impl Settings {
       server_password: None,
       server_url: Some(server_url.into()),
       server_username: None,
+      emit_events: false,
     }
   }
 
@@ -361,6 +366,7 @@ impl Settings {
       server_password: self.server_password,
       server_url: self.server_url,
       server_username: self.server_username,
+      emit_events: self.emit_events,
     })
   }
 
@@ -552,6 +558,10 @@ impl Settings {
 
   pub(crate) fn server_url(&self) -> Option<&str> {
     self.server_url.as_deref()
+  }
+
+  pub(crate) fn emit_events(&self) -> bool {
+    self.emit_events
   }
 }
 
@@ -1001,6 +1011,7 @@ mod tests {
       ("SERVER_PASSWORD", "server password"),
       ("SERVER_URL", "server url"),
       ("SERVER_USERNAME", "server username"),
+      ("EMIT_EVENTS", "1"),
     ]
     .into_iter()
     .map(|(key, value)| (key.into(), value.into()))
@@ -1044,6 +1055,7 @@ mod tests {
         server_password: Some("server password".into()),
         server_url: Some("server url".into()),
         server_username: Some("server username".into()),
+        emit_events: true,
       }
     );
   }
@@ -1076,6 +1088,7 @@ mod tests {
           "--no-index-inscriptions",
           "--server-password=server password",
           "--server-username=server username",
+          "--emit-events"
         ])
         .unwrap()
       ),
@@ -1104,6 +1117,7 @@ mod tests {
         server_password: Some("server password".into()),
         server_url: None,
         server_username: Some("server username".into()),
+        emit_events: true,
       }
     );
   }
