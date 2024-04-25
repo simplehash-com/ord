@@ -78,7 +78,10 @@ impl Subcommand {
             rt.block_on(async {
               // Probably do a kafka listener here?
               while let Some(event) = receiver.recv().await {
-                let _ = stream.emit(&event);
+                match stream.emit(&event) {
+                  Err(err) => log::error!("Error emitting event: {:?}", err),
+                  Ok(_) => continue,
+                }
               }
             });
           });
