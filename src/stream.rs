@@ -38,6 +38,14 @@ impl StreamClient {
           .set(
             "sasl.password",
             env::var("KAFKA_API_SECRET").unwrap_or("".to_owned()),
+          )
+          .set(
+            "linger.ms",
+            env::var("KAFKA_LINGER_MS").unwrap_or("200".to_owned()),
+          )
+          .set(
+            "compression.codec",
+            env::var("KAFKA_COMPRESSION_CODEC").unwrap_or("snappy".to_owned()),
           ),
       )
       .expect("failed to create kafka producer"),
@@ -113,11 +121,20 @@ impl StreamClient {
     };
 
     let payload = serde_json::to_vec(&event)?;
-    let record = BaseRecord::to(&self.topic).key(&key).payload(&payload);
     self.producer.poll(Duration::from_secs(0));
-    match self.producer.send(record) {
-      Ok(_) => Ok(()),
-      Err((e, _)) => Err(anyhow!("failed to send kafka message: {}", e)),
+    loop {
+      match self
+        .producer
+        .send(BaseRecord::to(&self.topic).key(&key).payload(&payload))
+      {
+        Ok(_) => return Ok(()),
+        Err((e, _)) => {
+          println!("Error sending message: {:?}. Retrying", e);
+          self.producer.poll(Duration::from_secs(0));
+          std::thread::sleep(Duration::from_millis(1000));
+          continue;
+        }
+      }
     }
   }
 }
