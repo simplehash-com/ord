@@ -444,6 +444,7 @@ impl<'index> Updater<'index> {
       unbound_inscriptions,
       value_cache,
       value_receiver,
+      block_hash: block.header.block_hash(),
     };
 
     if self.index.index_sats {
@@ -608,6 +609,7 @@ impl<'index> Updater<'index> {
         sequence_number_to_rune_id: &mut sequence_number_to_rune_id,
         statistic_to_count: &mut statistic_to_count,
         transaction_id_to_rune: &mut transaction_id_to_rune,
+        block_hash: block.header.block_hash(),
       };
 
       for (i, (tx, txid)) in block.txdata.iter().enumerate() {

@@ -90,4 +90,6 @@ pub struct Options {
   pub(crate) signet: bool,
   #[arg(long, short, help = "Use testnet. Equivalent to `--chain testnet`.")]
   pub(crate) testnet: bool,
+  #[arg(long, help = "Publish events to kafka.")]
+  pub(crate) emit_events: bool,
 }

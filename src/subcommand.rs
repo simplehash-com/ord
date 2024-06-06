@@ -66,10 +66,38 @@ impl Subcommand {
       Self::Parse(parse) => parse.run(),
       Self::Runes => runes::run(settings),
       Self::Server(server) => {
-        let index = Arc::new(Index::open(&settings)?);
-        let handle = axum_server::Handle::new();
-        LISTENERS.lock().unwrap().push(handle.clone());
-        server.run(settings, index, handle)
+        if settings.emit_events() {
+          log::info!("Starting server with kafka event emitter...");
+          let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event>(128);
+          let index = Arc::new(Index::open_with_event_sender(&settings, Some(sender))?);
+          let handle = axum_server::Handle::new();
+          LISTENERS.lock().unwrap().push(handle.clone());
+          thread::spawn(move || {
+            let stream = stream::StreamClient::new();
+            let rt = Runtime::new().unwrap();
+            rt.block_on(async {
+              while let Some(event) = receiver.recv().await {
+                loop {
+                  match stream.emit(&event) {
+                    Err(err) => {
+                      log::error!("Error emitting kafka event: {:?}. Sleeping for 1 sec", err);
+                      tokio::time::sleep(Duration::from_secs(1)).await;
+                      continue;
+                    }
+                    Ok(_) => break,
+                  }
+                }
+              }
+            });
+            stream.flush()
+          });
+          server.run(settings, index, handle)
+        } else {
+          let index = Arc::new(Index::open(&settings)?);
+          let handle = axum_server::Handle::new();
+          LISTENERS.lock().unwrap().push(handle.clone());
+          server.run(settings, index, handle)
+        }
       }
       Self::Settings => settings::run(settings),
       Self::Subsidy(subsidy) => subsidy.run(),
