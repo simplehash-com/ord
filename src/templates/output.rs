@@ -41,14 +41,14 @@ mod tests {
         <dl>
           <dt>value</dt><dd>3</dd>
           <dt>script pubkey</dt><dd class=monospace>OP_DUP OP_HASH160 OP_PUSHBYTES_20 0{40} OP_EQUALVERIFY OP_CHECKSIG</dd>
-          <dt>address</dt><dd class=monospace>1111111111111111111114oLvT2</dd>
+          <dt>address</dt><dd class=monospace><a href=/address/1111111111111111111114oLvT2>1111111111111111111114oLvT2</a></dd>
           <dt>transaction</dt><dd><a class=monospace href=/tx/1{64}>1{64}</a></dd>
           <dt>spent</dt><dd>false</dd>
         </dl>
         <h2>2 Sat Ranges</h2>
         <ul class=monospace>
           <li><a href=/sat/0 class=mythic>0</a></li>
-          <li><a href=/range/1/3 class=common>1–3</a></li>
+          <li><a href=/sat/1 class=common>1</a>-<a href=/sat/3>3</a><a href=/range/1/3> \\(2 sats\\)</a></li>
         </ul>
       "
       .unindent()
@@ -100,14 +100,14 @@ mod tests {
         <dl>
           <dt>value</dt><dd>3</dd>
           <dt>script pubkey</dt><dd class=monospace>OP_DUP OP_HASH160 OP_PUSHBYTES_20 0{40} OP_EQUALVERIFY OP_CHECKSIG</dd>
-          <dt>address</dt><dd class=monospace>1111111111111111111114oLvT2</dd>
+          <dt>address</dt><dd class=monospace><a href=/address/1111111111111111111114oLvT2>1111111111111111111114oLvT2</a></dd>
           <dt>transaction</dt><dd><a class=monospace href=/tx/1{64}>1{64}</a></dd>
           <dt>spent</dt><dd>true</dd>
         </dl>
         <h2>2 Sat Ranges</h2>
         <ul class=monospace>
           <li><a href=/sat/0 class=mythic>0</a></li>
-          <li><a href=/range/1/3 class=common>1–3</a></li>
+          <li><a href=/sat/1 class=common>1</a>-<a href=/sat/3>3</a><a href=/range/1/3> \\(2 sats\\)</a></li>
         </ul>
       "
       .unindent()
@@ -132,7 +132,7 @@ mod tests {
         <dl>
           <dt>value</dt><dd>3</dd>
           <dt>script pubkey</dt><dd class=monospace>OP_DUP OP_HASH160 OP_PUSHBYTES_20 0{40} OP_EQUALVERIFY OP_CHECKSIG</dd>
-          <dt>address</dt><dd class=monospace>1111111111111111111114oLvT2</dd>
+          <dt>address</dt><dd class=monospace><a href=/address/1111111111111111111114oLvT2>1111111111111111111114oLvT2</a></dd>
           <dt>transaction</dt><dd><a class=monospace href=/tx/1{64}>1{64}</a></dd>
           <dt>spent</dt><dd>false</dd>
         </dl>

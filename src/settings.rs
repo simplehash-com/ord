@@ -17,6 +17,7 @@ pub struct Settings {
   first_inscription_height: Option<u32>,
   height_limit: Option<u32>,
   hidden: Option<HashSet<InscriptionId>>,
+  http_port: Option<u16>,
   index: Option<PathBuf>,
   index_addresses: bool,
   index_cache_size: Option<usize>,
@@ -134,6 +135,7 @@ impl Settings {
           .cloned()
           .collect(),
       ),
+      http_port: self.http_port.or(source.http_port),
       index: self.index.or(source.index),
       index_addresses: self.index_addresses || source.index_addresses,
       index_cache_size: self.index_cache_size.or(source.index_cache_size),
@@ -171,6 +173,7 @@ impl Settings {
       first_inscription_height: options.first_inscription_height,
       height_limit: options.height_limit,
       hidden: None,
+      http_port: None,
       index: options.index,
       index_addresses: options.index_addresses,
       index_cache_size: options.index_cache_size,
@@ -222,6 +225,14 @@ impl Settings {
         })
     };
 
+    let get_u16 = |key| {
+      env
+        .get(key)
+        .map(|int| int.parse::<u16>())
+        .transpose()
+        .with_context(|| format!("failed to parse environment variable ORD_{key} as u16"))
+    };
+
     let get_u32 = |key| {
       env
         .get(key)
@@ -229,6 +240,7 @@ impl Settings {
         .transpose()
         .with_context(|| format!("failed to parse environment variable ORD_{key} as u32"))
     };
+
     let get_usize = |key| {
       env
         .get(key)
@@ -252,6 +264,7 @@ impl Settings {
       first_inscription_height: get_u32("FIRST_INSCRIPTION_HEIGHT")?,
       height_limit: get_u32("HEIGHT_LIMIT")?,
       hidden: inscriptions("HIDDEN")?,
+      http_port: get_u16("HTTP_PORT")?,
       index: get_path("INDEX"),
       index_addresses: get_bool("INDEX_ADDRESSES"),
       index_cache_size: get_usize("INDEX_CACHE_SIZE")?,
@@ -284,6 +297,7 @@ impl Settings {
       first_inscription_height: None,
       height_limit: None,
       hidden: None,
+      http_port: None,
       index: None,
       index_addresses: true,
       index_cache_size: None,
@@ -359,6 +373,7 @@ impl Settings {
       }),
       height_limit: self.height_limit,
       hidden: self.hidden,
+      http_port: self.http_port,
       index: Some(index),
       index_addresses: self.index_addresses,
       index_cache_size: Some(match self.index_cache_size {
@@ -524,15 +539,15 @@ impl Settings {
     self.index.as_ref().unwrap()
   }
 
-  pub fn index_addresses(&self) -> bool {
+  pub fn index_addresses_raw(&self) -> bool {
     self.index_addresses
   }
 
-  pub fn index_inscriptions(&self) -> bool {
+  pub fn index_inscriptions_raw(&self) -> bool {
     !self.no_index_inscriptions
   }
 
-  pub fn index_runes(&self) -> bool {
+  pub fn index_runes_raw(&self) -> bool {
     self.index_runes
   }
 
@@ -540,15 +555,15 @@ impl Settings {
     self.index_cache_size.unwrap()
   }
 
-  pub fn index_sats(&self) -> bool {
+  pub fn index_sats_raw(&self) -> bool {
     self.index_sats
   }
 
-  pub fn index_spent_sats(&self) -> bool {
+  pub fn index_spent_sats_raw(&self) -> bool {
     self.index_spent_sats
   }
 
-  pub fn index_transactions(&self) -> bool {
+  pub fn index_transactions_raw(&self) -> bool {
     self.index_transactions
   }
 
@@ -917,9 +932,9 @@ mod tests {
 
   #[test]
   fn index_runes() {
-    assert!(parse(&["--chain=signet", "--index-runes"]).index_runes());
-    assert!(parse(&["--index-runes"]).index_runes());
-    assert!(!parse(&[]).index_runes());
+    assert!(parse(&["--chain=signet", "--index-runes"]).index_runes_raw());
+    assert!(parse(&["--index-runes"]).index_runes_raw());
+    assert!(!parse(&[]).index_runes_raw());
   }
 
   #[test]
@@ -1021,6 +1036,7 @@ mod tests {
       ("FIRST_INSCRIPTION_HEIGHT", "2"),
       ("HEIGHT_LIMIT", "3"),
       ("HIDDEN", "6fb976ab49dcec017f1e201e84395983204ae1a7c2abf7ced0a85d692e442799i0 703e5f7c49d82aab99e605af306b9a30e991e57d42f982908a962a81ac439832i0"),
+    ("HTTP_PORT", "8080"),
       ("INDEX", "index"),
       ("INDEX_CACHE_SIZE", "4"),
       ("INDEX_ADDRESSES", "1"),
@@ -1067,6 +1083,7 @@ mod tests {
           .into_iter()
           .collect()
         ),
+        http_port: Some(8080),
         index: Some("index".into()),
         index_addresses: true,
         index_cache_size: Some(4),
@@ -1133,6 +1150,7 @@ mod tests {
         first_inscription_height: Some(2),
         height_limit: Some(3),
         hidden: None,
+        http_port: None,
         index: Some("index".into()),
         index_addresses: true,
         index_cache_size: Some(4),

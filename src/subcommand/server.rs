@@ -10,12 +10,12 @@ use {
     InputHtml, InscriptionHtml, InscriptionsBlockHtml, InscriptionsHtml, OutputHtml, PageContent,
     PageHtml, ParentsHtml, PreviewAudioHtml, PreviewCodeHtml, PreviewFontHtml, PreviewImageHtml,
     PreviewMarkdownHtml, PreviewModelHtml, PreviewPdfHtml, PreviewTextHtml, PreviewUnknownHtml,
-    PreviewVideoHtml, RangeHtml, RareTxt, RuneHtml, RunesHtml, SatHtml, TransactionHtml,
+    PreviewVideoHtml, RareTxt, RuneHtml, RunesHtml, SatHtml, TransactionHtml,
   },
   axum::{
     body,
     extract::{DefaultBodyLimit, Extension, Json, Path, Query},
-    http::{header, HeaderValue, StatusCode, Uri},
+    http::{header, HeaderName, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
@@ -29,7 +29,7 @@ use {
     caches::DirCache,
     AcmeConfig,
   },
-  std::{cmp::Ordering, str, sync::Arc},
+  std::{str, sync::Arc},
   tokio_stream::StreamExt,
   tower_http::{
     compression::CompressionLayer,
@@ -62,23 +62,6 @@ struct Search {
 #[folder = "static"]
 struct StaticAssets;
 
-struct StaticHtml {
-  title: &'static str,
-  html: &'static str,
-}
-
-impl PageContent for StaticHtml {
-  fn title(&self) -> String {
-    self.title.into()
-  }
-}
-
-impl Display for StaticHtml {
-  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-    f.write_str(self.html)
-  }
-}
-
 #[derive(Debug, Parser, Clone)]
 pub struct Server {
   #[arg(
@@ -101,6 +84,8 @@ pub struct Server {
     help = "Decompress encoded content. Currently only supports brotli. Be careful using this on production instances. A decompressed inscription may be arbitrarily large, making decompression a DoS vector."
   )]
   pub(crate) decompress: bool,
+  #[arg(long, help = "Disable cross origin isolation.")]
+  pub(crate) disable_cross_origin_isolation: bool,
   #[arg(long, help = "Disable JSON API.")]
   pub(crate) disable_json_api: bool,
   #[arg(
@@ -128,9 +113,9 @@ pub struct Server {
   pub(crate) no_sync: bool,
   #[arg(
     long,
-    help = "Proxy `/content/INSCRIPTION_ID` requests to `<CONTENT_PROXY>/content/INSCRIPTION_ID` if the inscription is not present on current chain."
+    help = "Proxy `/content/INSCRIPTION_ID` and other recursive endpoints to `<PROXY>` if the inscription is not present on current chain."
   )]
-  pub(crate) content_proxy: Option<Url>,
+  pub(crate) proxy: Option<Url>,
   #[arg(
     long,
     default_value = "5s",
@@ -170,12 +155,13 @@ impl Server {
 
       let server_config = Arc::new(ServerConfig {
         chain: settings.chain(),
-        content_proxy: self.content_proxy.clone(),
+        cross_origin_isolation: !self.disable_cross_origin_isolation,
         csp_origin: self.csp_origin.clone(),
         decompress: self.decompress,
         domain: acme_domains.first().cloned(),
         index_sats: index.has_sat_index(),
         json_api_enabled: !self.disable_json_api,
+        proxy: self.proxy.clone(),
       });
 
       let router = Router::new()
@@ -268,7 +254,6 @@ impl Server {
           "/r/sat/:sat_number/at/:index",
           get(Self::sat_inscription_at_index),
         )
-        .route("/range/:start/:end", get(Self::range))
         .route("/rare.txt", get(Self::rare_txt))
         .route("/rune/:rune", get(Self::rune))
         .route("/runes", get(Self::runes))
@@ -301,6 +286,24 @@ impl Server {
         )
         .layer(CompressionLayer::new())
         .with_state(server_config.clone());
+
+      let router = if server_config.cross_origin_isolation {
+        router
+          .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cross-origin-embedder-policy"),
+            HeaderValue::from_static("require-corp"),
+          ))
+          .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cross-origin-opener-policy"),
+            HeaderValue::from_static("same-origin"),
+          ))
+          .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cross-origin-resource-policy"),
+            HeaderValue::from_static("same-site"),
+          ))
+      } else {
+        router
+      };
 
       let router = if server_config.json_api_enabled {
         router.layer(DefaultBodyLimit::disable())
@@ -650,22 +653,6 @@ impl Server {
     })
   }
 
-  async fn range(
-    Extension(server_config): Extension<Arc<ServerConfig>>,
-    Path((DeserializeFromStr(start), DeserializeFromStr(end))): Path<(
-      DeserializeFromStr<Sat>,
-      DeserializeFromStr<Sat>,
-    )>,
-  ) -> ServerResult<PageHtml<RangeHtml>> {
-    match start.cmp(&end) {
-      Ordering::Equal => Err(ServerError::BadRequest("empty range".to_string())),
-      Ordering::Greater => Err(ServerError::BadRequest(
-        "range start greater than range end".to_string(),
-      )),
-      Ordering::Less => Ok(RangeHtml { start, end }.page(server_config)),
-    }
-  }
-
   async fn rare_txt(Extension(index): Extension<Arc<Index>>) -> ServerResult<RareTxt> {
     task::block_in_place(|| Ok(RareTxt(index.rare_sat_satpoints()?)))
   }
@@ -862,12 +849,24 @@ impl Server {
 
       outputs.sort();
 
+      let sat_balance = index.get_sat_balances_for_outputs(&outputs)?;
+
+      let inscriptions = index.get_inscriptions_for_outputs(&outputs)?;
+
+      let runes_balances = index.get_aggregated_rune_balances_for_outputs(&outputs)?;
+
       Ok(if accept_json {
         Json(outputs).into_response()
       } else {
-        AddressHtml { address, outputs }
-          .page(server_config)
-          .into_response()
+        AddressHtml {
+          address,
+          outputs,
+          inscriptions,
+          sat_balance,
+          runes_balances,
+        }
+        .page(server_config)
+        .into_response()
       })
     })
   }
@@ -1005,27 +1004,45 @@ impl Server {
 
   async fn metadata(
     Extension(index): Extension<Arc<Index>>,
+    Extension(server_config): Extension<Arc<ServerConfig>>,
     Path(inscription_id): Path<InscriptionId>,
-  ) -> ServerResult<Json<String>> {
+  ) -> ServerResult {
     task::block_in_place(|| {
-      let metadata = index
-        .get_inscription_by_id(inscription_id)?
-        .ok_or_not_found(|| format!("inscription {inscription_id}"))?
+      let Some(inscription) = index.get_inscription_by_id(inscription_id)? else {
+        return if let Some(proxy) = server_config.proxy.as_ref() {
+          Self::proxy(proxy, &format!("r/metadata/{}", inscription_id))
+        } else {
+          Err(ServerError::NotFound(format!(
+            "inscription {} not found",
+            inscription_id
+          )))
+        };
+      };
+
+      let metadata = inscription
         .metadata
         .ok_or_not_found(|| format!("inscription {inscription_id} metadata"))?;
 
-      Ok(Json(hex::encode(metadata)))
+      Ok(Json(hex::encode(metadata)).into_response())
     })
   }
 
   async fn inscription_recursive(
     Extension(index): Extension<Arc<Index>>,
+    Extension(server_config): Extension<Arc<ServerConfig>>,
     Path(inscription_id): Path<InscriptionId>,
   ) -> ServerResult {
     task::block_in_place(|| {
-      let inscription = index
-        .get_inscription_by_id(inscription_id)?
-        .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+      let Some(inscription) = index.get_inscription_by_id(inscription_id)? else {
+        return if let Some(proxy) = server_config.proxy.as_ref() {
+          Self::proxy(proxy, &format!("r/inscription/{}", inscription_id))
+        } else {
+          Err(ServerError::NotFound(format!(
+            "inscription {} not found",
+            inscription_id
+          )))
+        };
+      };
 
       let entry = index
         .get_inscription_entry(inscription_id)
@@ -1386,9 +1403,9 @@ impl Server {
     Redirect::to("https://docs.ordinals.com/bounty/")
   }
 
-  fn proxy_content(proxy: &Url, inscription_id: InscriptionId) -> ServerResult<Response> {
+  fn proxy(proxy: &Url, path: &String) -> ServerResult<Response> {
     let response = reqwest::blocking::Client::new()
-      .get(format!("{}content/{}", proxy, inscription_id))
+      .get(format!("{}{}", proxy, path))
       .send()
       .map_err(|err| anyhow!(err))?;
 
@@ -1425,11 +1442,11 @@ impl Server {
       }
 
       let Some(mut inscription) = index.get_inscription_by_id(inscription_id)? else {
-        return if let Some(proxy) = server_config.content_proxy.as_ref() {
-          Self::proxy_content(proxy, inscription_id)
+        return if let Some(proxy) = server_config.proxy.as_ref() {
+          Self::proxy(proxy, &format!("content/{}", inscription_id))
         } else {
           Err(ServerError::NotFound(format!(
-            "{} not found",
+            "inscription {} not found",
             inscription_id
           )))
         };
@@ -1774,20 +1791,35 @@ impl Server {
 
   async fn children_recursive(
     Extension(index): Extension<Arc<Index>>,
+    Extension(server_config): Extension<Arc<ServerConfig>>,
     Path(inscription_id): Path<InscriptionId>,
   ) -> ServerResult {
-    Self::children_recursive_paginated(Extension(index), Path((inscription_id, 0))).await
+    Self::children_recursive_paginated(
+      Extension(index),
+      Extension(server_config),
+      Path((inscription_id, 0)),
+    )
+    .await
   }
 
   async fn children_recursive_paginated(
     Extension(index): Extension<Arc<Index>>,
+    Extension(server_config): Extension<Arc<ServerConfig>>,
     Path((parent, page)): Path<(InscriptionId, usize)>,
   ) -> ServerResult {
     task::block_in_place(|| {
-      let parent_sequence_number = index
-        .get_inscription_entry(parent)?
-        .ok_or_not_found(|| format!("inscription {parent}"))?
-        .sequence_number;
+      let Some(parent) = index.get_inscription_entry(parent)? else {
+        return if let Some(proxy) = server_config.proxy.as_ref() {
+          Self::proxy(proxy, &format!("r/children/{}/{}", parent, page))
+        } else {
+          Err(ServerError::NotFound(format!(
+            "inscription {} not found",
+            parent
+          )))
+        };
+      };
+
+      let parent_sequence_number = parent.sequence_number;
 
       let (ids, more) =
         index.get_children_by_sequence_number_paginated(parent_sequence_number, 100, page)?;
@@ -3629,50 +3661,6 @@ mod tests {
   }
 
   #[test]
-  fn range_end_before_range_start_returns_400() {
-    TestServer::new().assert_response(
-      "/range/1/0",
-      StatusCode::BAD_REQUEST,
-      "range start greater than range end",
-    );
-  }
-
-  #[test]
-  fn invalid_range_start_returns_400() {
-    TestServer::new().assert_response(
-      "/range/=/0",
-      StatusCode::BAD_REQUEST,
-      "Invalid URL: failed to parse sat `=`: invalid integer: invalid digit found in string",
-    );
-  }
-
-  #[test]
-  fn invalid_range_end_returns_400() {
-    TestServer::new().assert_response(
-      "/range/0/=",
-      StatusCode::BAD_REQUEST,
-      "Invalid URL: failed to parse sat `=`: invalid integer: invalid digit found in string",
-    );
-  }
-
-  #[test]
-  fn empty_range_returns_400() {
-    TestServer::new().assert_response("/range/0/0", StatusCode::BAD_REQUEST, "empty range");
-  }
-
-  #[test]
-  fn range() {
-    TestServer::new().assert_response_regex(
-      "/range/0/1",
-      StatusCode::OK,
-      r".*<title>Sat Range 0–1</title>.*<h1>Sat Range 0–1</h1>
-<dl>
-  <dt>value</dt><dd>1</dd>
-  <dt>first</dt><dd><a href=/sat/0 class=mythic>0</a></dd>
-</dl>.*",
-    );
-  }
-  #[test]
   fn sat_number() {
     TestServer::new().assert_response_regex("/sat/0", StatusCode::OK, ".*<h1>Sat 0</h1>.*");
   }
@@ -3751,7 +3739,7 @@ mod tests {
 </dl>
 <h2>1 Sat Range</h2>
 <ul class=monospace>
-  <li><a href=/range/0/5000000000 class=mythic>0–5000000000</a></li>
+  <li><a href=/sat/0 class=mythic>0</a>-<a href=/sat/5000000000>5000000000</a><a href=/range/0/5000000000> \\(5000000000 sats\\)</a></li>
 </ul>.*"
         ),
       );
@@ -3817,7 +3805,7 @@ mod tests {
 </dl>
 <h2>1 Sat Range</h2>
 <ul class=monospace>
-  <li><a href=/range/5000000000/10000000000 class=uncommon>5000000000–10000000000</a></li>
+  <li><a href=/sat/5000000000 class=uncommon>5000000000</a>-<a href=/sat/10000000000>10000000000</a><a href=/range/5000000000/10000000000> \\(5000000000 sats\\)</a></li>
 </ul>.*"
       ),
     );
@@ -4762,7 +4750,7 @@ mod tests {
     server.assert_response_regex(
       format!("/inscription/{}", InscriptionId { txid, index: 0 }),
       StatusCode::OK,
-      r".*<dt>sat</dt>\s*<dd><a href=/sat/5000000000>5000000000</a></dd>\s*<dt>preview</dt>.*",
+      r".*<dt>sat</dt>\s*<dd><a href=/sat/5000000000>5000000000</a></dd>\s*<dt>sat name</dt>\s*<dd><a href=/sat/nvtcsezkbth>nvtcsezkbth</a></dd>\s*<dt>preview</dt>.*",
     );
   }
 
@@ -4826,6 +4814,31 @@ mod tests {
         .unwrap(),
       "max-age=31536000; includeSubDomains; preload",
     );
+  }
+
+  #[test]
+  fn cross_origin_isolation_headers() {
+    const COEP: HeaderName = HeaderName::from_static("cross-origin-embedder-policy");
+    const COOP: HeaderName = HeaderName::from_static("cross-origin-opener-policy");
+    const CORP: HeaderName = HeaderName::from_static("cross-origin-resource-policy");
+
+    {
+      let response = TestServer::new().get("/status");
+      assert_eq!(response.headers().get(COEP).unwrap(), "require-corp");
+      assert_eq!(response.headers().get(COOP).unwrap(), "same-origin");
+      assert_eq!(response.headers().get(CORP).unwrap(), "same-site");
+    }
+
+    {
+      let response = TestServer::builder()
+        .server_flag("--disable-cross-origin-isolation")
+        .build()
+        .get("/status");
+
+      assert!(response.headers().get(COEP).is_none());
+      assert!(response.headers().get(COOP).is_none());
+      assert!(response.headers().get(CORP).is_none());
+    }
   }
 
   #[test]
@@ -6551,7 +6564,7 @@ next
   }
 
   #[test]
-  fn proxy() {
+  fn content_proxy() {
     let server = TestServer::builder().chain(Chain::Regtest).build();
 
     server.mine_blocks(1);
@@ -6575,13 +6588,233 @@ next
 
     let server_with_proxy = TestServer::builder()
       .chain(Chain::Regtest)
-      .server_option("--content-proxy", server.url.as_ref())
+      .server_option("--proxy", server.url.as_ref())
       .build();
 
     server_with_proxy.mine_blocks(1);
 
     server.assert_response(format!("/content/{id}"), StatusCode::OK, "foo");
     server_with_proxy.assert_response(format!("/content/{id}"), StatusCode::OK, "foo");
+  }
+
+  #[test]
+  fn metadata_proxy() {
+    let server = TestServer::builder().chain(Chain::Regtest).build();
+
+    server.mine_blocks(1);
+
+    let mut metadata = Vec::new();
+    ciborium::into_writer("bar", &mut metadata).unwrap();
+
+    let inscription = Inscription {
+      content_type: Some("text/html".into()),
+      body: Some("foo".into()),
+      metadata: Some(metadata.clone()),
+      ..default()
+    };
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription.to_witness())],
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let id = InscriptionId { txid, index: 0 };
+
+    server.assert_response(
+      format!("/r/metadata/{id}"),
+      StatusCode::OK,
+      &format!("\"{}\"", hex::encode(metadata.clone())),
+    );
+
+    let server_with_proxy = TestServer::builder()
+      .chain(Chain::Regtest)
+      .server_option("--proxy", server.url.as_ref())
+      .build();
+
+    server_with_proxy.mine_blocks(1);
+
+    server.assert_response(
+      format!("/r/metadata/{id}"),
+      StatusCode::OK,
+      &format!("\"{}\"", hex::encode(metadata.clone())),
+    );
+
+    server_with_proxy.assert_response(
+      format!("/r/metadata/{id}"),
+      StatusCode::OK,
+      &format!("\"{}\"", hex::encode(metadata.clone())),
+    );
+  }
+
+  #[test]
+  fn children_proxy() {
+    let server = TestServer::builder().chain(Chain::Regtest).build();
+
+    server.mine_blocks(1);
+
+    let parent_txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription("text/plain", "hello").to_witness())],
+      ..default()
+    });
+
+    let parent_id = InscriptionId {
+      txid: parent_txid,
+      index: 0,
+    };
+
+    server.assert_response(
+      format!("/r/children/{parent_id}"),
+      StatusCode::NOT_FOUND,
+      &format!("inscription {parent_id} not found"),
+    );
+
+    server.mine_blocks(1);
+
+    let children = server.get_json::<api::Children>(format!("/r/children/{parent_id}"));
+
+    assert_eq!(children.ids.len(), 0);
+
+    let mut builder = script::Builder::new();
+    for _ in 0..11 {
+      builder = Inscription {
+        content_type: Some("text/plain".into()),
+        body: Some("hello".into()),
+        parents: vec![parent_id.value()],
+        unrecognized_even_field: false,
+        ..default()
+      }
+      .append_reveal_script_to_builder(builder);
+    }
+
+    let witness = Witness::from_slice(&[builder.into_bytes(), Vec::new()]);
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(2, 0, 0, witness), (2, 1, 0, Default::default())],
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let first_child_id = InscriptionId { txid, index: 0 };
+
+    let children = server.get_json::<api::Children>(format!("/r/children/{parent_id}"));
+
+    assert_eq!(children.ids.len(), 11);
+    assert_eq!(first_child_id, children.ids[0]);
+
+    let server_with_proxy = TestServer::builder()
+      .chain(Chain::Regtest)
+      .server_option("--proxy", server.url.as_ref())
+      .build();
+
+    server_with_proxy.mine_blocks(1);
+
+    let children = server.get_json::<api::Children>(format!("/r/children/{parent_id}"));
+
+    assert_eq!(children.ids.len(), 11);
+    assert_eq!(first_child_id, children.ids[0]);
+
+    let children = server_with_proxy.get_json::<api::Children>(format!("/r/children/{parent_id}"));
+
+    assert_eq!(children.ids.len(), 11);
+    assert_eq!(first_child_id, children.ids[0]);
+  }
+
+  #[test]
+  fn inscription_proxy() {
+    let server = TestServer::builder().chain(Chain::Regtest).build();
+
+    server.mine_blocks(1);
+
+    let inscription = Inscription {
+      content_type: Some("text/html".into()),
+      body: Some("foo".into()),
+      ..default()
+    };
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription.to_witness())],
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let id = InscriptionId { txid, index: 0 };
+
+    pretty_assert_eq!(
+      server.get_json::<api::InscriptionRecursive>(format!("/r/inscription/{id}")),
+      api::InscriptionRecursive {
+        charms: Vec::new(),
+        content_type: Some("text/html".into()),
+        content_length: Some(3),
+        delegate: None,
+        fee: 0,
+        height: 2,
+        id,
+        number: 0,
+        output: OutPoint { txid, vout: 0 },
+        sat: None,
+        satpoint: SatPoint {
+          outpoint: OutPoint { txid, vout: 0 },
+          offset: 0
+        },
+        timestamp: 2,
+        value: Some(50 * COIN_VALUE),
+      }
+    );
+
+    let server_with_proxy = TestServer::builder()
+      .chain(Chain::Regtest)
+      .server_option("--proxy", server.url.as_ref())
+      .build();
+
+    server_with_proxy.mine_blocks(1);
+
+    pretty_assert_eq!(
+      server.get_json::<api::InscriptionRecursive>(format!("/r/inscription/{id}")),
+      api::InscriptionRecursive {
+        charms: Vec::new(),
+        content_type: Some("text/html".into()),
+        content_length: Some(3),
+        delegate: None,
+        fee: 0,
+        height: 2,
+        id,
+        number: 0,
+        output: OutPoint { txid, vout: 0 },
+        sat: None,
+        satpoint: SatPoint {
+          outpoint: OutPoint { txid, vout: 0 },
+          offset: 0
+        },
+        timestamp: 2,
+        value: Some(50 * COIN_VALUE),
+      }
+    );
+
+    assert_eq!(
+      server_with_proxy.get_json::<api::InscriptionRecursive>(format!("/r/inscription/{id}")),
+      api::InscriptionRecursive {
+        charms: Vec::new(),
+        content_type: Some("text/html".into()),
+        content_length: Some(3),
+        delegate: None,
+        fee: 0,
+        height: 2,
+        id,
+        number: 0,
+        output: OutPoint { txid, vout: 0 },
+        sat: None,
+        satpoint: SatPoint {
+          outpoint: OutPoint { txid, vout: 0 },
+          offset: 0
+        },
+        timestamp: 2,
+        value: Some(50 * COIN_VALUE),
+      }
+    );
   }
 
   #[test]
@@ -6715,5 +6948,155 @@ next
   fn update_endpoint_is_not_available_when_not_in_integration_test_mode() {
     let server = TestServer::builder().build();
     server.assert_response("/update", StatusCode::NOT_FOUND, "");
+  }
+
+  #[test]
+  fn burned_charm() {
+    let server = TestServer::builder().chain(Chain::Regtest).build();
+
+    server.mine_blocks(1);
+
+    let inscription = Inscription {
+      content_type: Some("text/html".into()),
+      body: Some("foo".into()),
+      ..default()
+    };
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription.to_witness())],
+      outputs: 0,
+      op_return_index: Some(0),
+      op_return_value: Some(50 * COIN_VALUE),
+      op_return: Some(
+        script::Builder::new()
+          .push_opcode(opcodes::all::OP_RETURN)
+          .into_script(),
+      ),
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let id = InscriptionId { txid, index: 0 };
+
+    pretty_assert_eq!(
+      server.get_json::<api::InscriptionRecursive>(format!("/r/inscription/{id}")),
+      api::InscriptionRecursive {
+        charms: vec![Charm::Burned],
+        content_type: Some("text/html".into()),
+        content_length: Some(3),
+        delegate: None,
+        fee: 0,
+        height: 2,
+        id,
+        number: 0,
+        output: OutPoint { txid, vout: 0 },
+        sat: None,
+        satpoint: SatPoint {
+          outpoint: OutPoint { txid, vout: 0 },
+          offset: 0
+        },
+        timestamp: 2,
+        value: Some(50 * COIN_VALUE),
+      }
+    );
+  }
+
+  #[test]
+  fn burned_charm_on_transfer() {
+    let server = TestServer::builder().chain(Chain::Regtest).build();
+
+    server.mine_blocks(1);
+
+    let inscription = Inscription {
+      content_type: Some("text/html".into()),
+      body: Some("foo".into()),
+      ..default()
+    };
+
+    let create_txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription.to_witness())],
+      outputs: 1,
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let id = InscriptionId {
+      txid: create_txid,
+      index: 0,
+    };
+
+    pretty_assert_eq!(
+      server.get_json::<api::InscriptionRecursive>(format!("/r/inscription/{id}")),
+      api::InscriptionRecursive {
+        charms: vec![],
+        content_type: Some("text/html".into()),
+        content_length: Some(3),
+        delegate: None,
+        fee: 0,
+        height: 2,
+        id,
+        number: 0,
+        output: OutPoint {
+          txid: create_txid,
+          vout: 0
+        },
+        sat: None,
+        satpoint: SatPoint {
+          outpoint: OutPoint {
+            txid: create_txid,
+            vout: 0
+          },
+          offset: 0
+        },
+        timestamp: 2,
+        value: Some(50 * COIN_VALUE),
+      }
+    );
+
+    let transfer_txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(2, 1, 0, Default::default())],
+      fee: 0,
+      outputs: 0,
+      op_return_index: Some(0),
+      op_return_value: Some(50 * COIN_VALUE),
+      op_return: Some(
+        script::Builder::new()
+          .push_opcode(opcodes::all::OP_RETURN)
+          .into_script(),
+      ),
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    pretty_assert_eq!(
+      server.get_json::<api::InscriptionRecursive>(format!("/r/inscription/{id}")),
+      api::InscriptionRecursive {
+        charms: vec![Charm::Burned],
+        content_type: Some("text/html".into()),
+        content_length: Some(3),
+        delegate: None,
+        fee: 0,
+        height: 2,
+        id,
+        number: 0,
+        output: OutPoint {
+          txid: transfer_txid,
+          vout: 0
+        },
+        sat: None,
+        satpoint: SatPoint {
+          outpoint: OutPoint {
+            txid: transfer_txid,
+            vout: 0
+          },
+          offset: 0
+        },
+        timestamp: 2,
+        value: Some(50 * COIN_VALUE),
+      }
+    );
   }
 }
